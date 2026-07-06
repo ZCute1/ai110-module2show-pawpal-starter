@@ -1,0 +1,68 @@
+classDiagram
+    %% PawPal+ — updated design (matches pawpal_system.py)
+    %% Schedule is the "brain": it retrieves tasks from the owner's pets and
+    %% places them around fixed commitments. Times are minutes since midnight.
+
+    class Task {
+        +str title
+        +int duration_minutes
+        +str priority
+        +bool recurring_daily
+        +bool completed
+        +Pet pet
+        +mark_complete() None
+        +reset_for_day() None
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +str breed
+        +str activity_level
+        +List~Task~ tasks
+        +add_task(task) None
+    }
+
+    class TimeBlock {
+        +str label
+        +int start_min
+        +int end_min
+        +Task task
+        +duration() int
+    }
+
+    class Schedule {
+        +date day
+        +Owner owner
+        +List~TimeBlock~ blocks
+        +List~Task~ unplaced
+        +pending_tasks() List~Task~
+        +add_commitment(start, end, label) str
+        +remove_block(block) None
+        +move_block(block, new_start) None
+        +clear_plan() None
+        +free_windows() List~TimeBlock~
+        +build() List~TimeBlock~
+        +explain() str
+    }
+
+    class Owner {
+        +str name
+        +List~Pet~ pets
+        +Schedule schedule
+        +add_pet(pet) None
+        +add_commitment(start, end, label) str
+        +remove_commitment(block) None
+        +move_commitment(block, new_start) None
+        +check_off(task) None
+        +start_new_day() None
+        +build_day() List~TimeBlock~
+    }
+
+    Owner "1" --> "0..*" Pet : owns
+    Owner "1" --> "1" Schedule : plans
+    Schedule "1" --> "1" Owner : reads pets (back-ref)
+    Pet "1" *-- "0..*" Task : has
+    Task "0..*" --> "1" Pet : belongs to (back-ref)
+    Schedule "1" *-- "0..*" TimeBlock : contains
+    TimeBlock "0..1" --> "1" Task : places
