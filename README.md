@@ -54,6 +54,11 @@ Paste a sample of your app's CLI or Streamlit output here so a reader can see wh
 #   ...
 ```
 
+## System Design
+- add a pet
+- schedule a walk
+- see today's tasks
+
 ## 🧪 Testing PawPal+
 
 ```bash

@@ -1,0 +1,56 @@
+classDiagram
+    %% PawPal+ — pet care planning assistant
+    %% Schedule = the owner's day: fixed commitments (time constraints) + pet tasks the scheduler places around them.
+
+    class Owner {
+        +str name
+        +List~Pet~ pets
+        +Schedule schedule
+        +add_pet(pet) None
+        +add_commitment(start, end, label) str
+        +check_off(task) None
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +str breed
+        +str activity_level
+        +List~Task~ tasks
+        +add_task(task) None
+    }
+
+    class Task {
+        +str title
+        +int duration_minutes
+        +str priority
+        +bool recurring_daily
+        +bool completed
+        +mark_done() None
+        +reset_for_day() None
+    }
+
+    class Schedule {
+        +date day
+        +List~TimeBlock~ blocks
+        +List~Task~ unplaced
+        +add_commitment(start, end, label) str
+        +remove_block(block) None
+        +move_block(block, new_start) None
+        +build() List~TimeBlock~
+        +free_windows() List~TimeBlock~
+        +explain() str
+    }
+
+    class TimeBlock {
+        +str label
+        +time start_time
+        +time end_time
+        +Task task
+    }
+
+    Owner "1" --> "0..*" Pet : owns
+    Owner "1" --> "1" Schedule : plans
+    Pet "1" *-- "0..*" Task : has
+    Schedule "1" *-- "0..*" TimeBlock : contains
+    TimeBlock "0..1" --> "1" Task : places
