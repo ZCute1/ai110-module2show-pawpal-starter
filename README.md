@@ -44,15 +44,25 @@ pip install -r requirements.txt
 
 ## 🖥️ Sample Output
 
-Paste a sample of your app's CLI or Streamlit output here so a reader can see what a generated plan looks like:
+Running the terminal demo (`python main.py`) creates an owner with two pets, adds
+several tasks and the owner's commitments, then builds and prints the day's plan:
 
 ```
-# e.g.:
-# Daily plan for Biscuit (Golden Retriever):
-#   08:00 — Morning walk (30 min) [priority: high]
-#   09:00 — Feeding (10 min) [priority: high]
-#   ...
+Heads up: 'Lunch w/ Sam' overlaps 'Work'.
+
+===== Today's Schedule =====
+Plan for 2026-07-06:
+  06:00-06:15  Feeding for Luna (high priority)
+  06:15-07:00  Morning walk for Mochi (high priority)
+  07:00-07:30  Training session for Mochi (medium priority)
+  07:30-07:50  Playtime for Luna (low priority)
+  09:00-17:00  Work (commitment)
+  12:00-13:00  Lunch w/ Sam (commitment)
 ```
+
+The scheduler places pet tasks highest-priority-first into the free time around
+the owner's fixed commitments, labels each task with the pet it belongs to, and
+warns when a new commitment overlaps an existing one.
 
 ## System Design
 - add a pet
