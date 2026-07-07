@@ -87,14 +87,66 @@ Sample test output:
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
+The scheduling logic lives in the `Schedule` class in `pawpal_system.py` (the
+class docstring calls it the "brain" — it retrieves tasks from the owner's pets
+and places them around fixed commitments). The table summarizes each feature and
+the method that implements it; details follow below.
 
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Sorting | `Schedule.sort_by_time()` | Orders tasks by preferred `"HH:MM"` time |
+| Filtering | `Schedule.filter_tasks()` (+ `all_tasks()`, `pending_tasks()`) | By pet name and/or completion status |
+| Conflict detection | `Schedule.detect_conflicts()` | Flags tasks requested for overlapping times |
+| Recurring tasks | `Task.mark_complete()` (+ `Owner.start_new_day()`, `Task.__post_init__`) | Daily/weekly tasks spawn their next occurrence |
+| Placement | `Schedule.build()` (+ `free_windows()`) | Priority-first, preference-aware, best-fit, with buffers |
+
+### Sorting — `Schedule.sort_by_time()`
+
+Returns all tasks ordered by their preferred time of day. Each `Task` carries a
+`scheduled_time` as a zero-padded `"HH:MM"` string (e.g. `"09:30"`); because
+fixed-width `"HH:MM"` strings sort chronologically as plain strings, the method
+is a one-line `sorted(..., key=lambda t: t.scheduled_time)`. Tasks with no
+preferred time (`""`) sort to the front.
+
+### Filtering — `Schedule.filter_tasks(pet_name=..., completed=...)`
+
+Filters tasks by **pet name** and/or **completion status**. Both arguments are
+optional keyword-only filters that combine with AND; passing `None` (the default)
+means "don't filter on that field," and pet-name matching is case-insensitive.
+Two helpers back it: `all_tasks()` returns every task across all pets (done or
+not), and `pending_tasks()` returns only incomplete tasks that are due on or
+before the schedule's day (so future-dated recurrences stay hidden until their
+day arrives).
+
+### Conflict detection — `Schedule.detect_conflicts()`
+
+Reports pairs of tasks whose **requested** time slots overlap — a task with a
+`scheduled_time` "wants" the slot `[start, start + duration]`, and two such slots
+can't both happen as asked (one pet can't be in two places, and neither can the
+single owner). It's a lightweight check: sort the timed slots by start, then
+compare each against later ones only until they're clearly past it. It **collects
+warning strings and returns them** (empty list = no conflicts) rather than
+raising, so a clash is surfaced as a message the caller can print — the terminal
+demo prints them, and `app.py` shows them as a Streamlit `st.warning` banner.
+Note this checks the times you *requested*, not the built plan, since `build()`
+itself never double-books.
+
+### Recurring tasks — `Task.mark_complete()`
+
+A `Task` has a `recurrence` field of `""` (one-off), `"daily"`, or `"weekly"`,
+plus a `due_date`. When a recurring task is completed, `mark_complete()`
+**automatically spawns a new `Task` instance** for the next occurrence, attached
+to the same pet — one day later for daily, seven for weekly, computed with
+`datetime.timedelta` so month/year boundaries and leap years roll over correctly.
+Supporting pieces:
+
+- `Task.__post_init__()` gives a recurring task a concrete `due_date` (today) as
+  its anchor for the next occurrence.
+- `Schedule.pending_tasks()` hides future-dated instances until their day.
+- `Owner.start_new_day()` advances the schedule date and rolls any *missed*
+  recurring task's `due_date` forward — so a skipped daily task stays "today's
+  task" instead of lingering stale-dated, and never piles up into duplicates
+  (spawning only happens on completion).
 
 ## 📸 Demo Walkthrough
 

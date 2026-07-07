@@ -43,13 +43,17 @@ Originally a Task only stored its own details (title, duration, priority) and ha
 **a. Constraints and priorities**
 
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
+It considers fixed commitments of the owner (like meetings),the window of the day for activities (6am tot 10pm), available time, and due date. Then it acknnowledges priority, preferred time , pet activity level, leaving time between tasks, and best-fit scheduling. If there are conflicts, a warning is raised.
+
 - How did you decide which constraints mattered most?
+I first evaluated the non-flexible commitments of the owner (eg. work) as the most important. Then, priority comes in to organise the tasks. The additional constraints such as preference are less important compared to the fixed constraints.
 
 **b. Tradeoffs**
 
 - Describe one tradeoff your scheduler makes.
+SInce the scheduler uses a greedy, priority-first placement (rather than using a globally optimal solution), this creates an issue where a single long, high-priority task can prevent several shorter, low-priority tasks from being scheduled.
 - Why is that tradeoff reasonable for this scenario?
-
+This is a reasonable tradeoff because the owner is concerned about completing tasks with high priority over completing the most tasks. Also, there is an explain() function that lets the owner know why a task wasnt scheduled so he/she can be aware it may be rescheduled for the next day.
 ---
 
 ## 3. AI Collaboration
@@ -57,13 +61,17 @@ Originally a Task only stored its own details (title, duration, priority) and ha
 **a. How you used AI**
 
 - How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
+I used it to judge my brainstorming (to check if there were any grey areas or cases that were unnaccounted for), and to check that everything is logical and reasonable. I also used it to automate testing as well.
 - What kinds of prompts or questions were most helpful?
+I liked the ones from the instructions that I wouldn't have thought to ask, like simplifying the code for readability. Since AI is made to sound so confident and sure of itself, we actually think it is 100% correct and accurate and then end up feeling unsure of our own ideas. So even when the code it gave worked, I didn't think to make it more readable (I just thought that experienced developers would be able to reason it out without difficulty and there was no issue with readability). So it was nice to think about that.
+Also the prompts about assessing the current system design led to interesting discoveries and helped me understand the full picture of the system better.
 
 **b. Judgment and verification**
 
 - Describe one moment where you did not accept an AI suggestion as-is.
+When implementing the daily recurrence logic, it suggested to create a new day at the end of each recurring task. I said that may cause issues swhen the owner tries to schedule ahead of time. Then it agreed with me and then made a method clear_plan() which only clears generated blocks whilts keeping the owner's commitments. This fix also led to other fixes...
 - How did you evaluate or verify what the AI suggested?
-
+I asked it to give me the pros and cons of each suggestion and i asked it to test it for and logical loopholes.
 ---
 
 ## 4. Testing and Verification
@@ -85,11 +93,14 @@ Originally a Task only stored its own details (title, duration, priority) and ha
 **a. What went well**
 
 - What part of this project are you most satisfied with?
+The scheduling algorithm and the different factors it considers
 
 **b. What you would improve**
 
 - If you had another iteration, what would you improve or redesign?
+I might try to find a way to extend it to a full calendar so you can see tasks for the week and not just for the day. I think daily schedules are great, but if you have a week in front of you, it will be easier to know when to schedule commitments having your pets in mind.
 
 **c. Key takeaway**
 
 - What is one important thing you learned about designing systems or working with AI on this project?
+I liked getting to work with AI to design the system. I haven't yet taken a software engineering course, so I am still new to system design, but it was interesting getting comfortable with knowing what is needed for a particular system and how different components interact with eachother.

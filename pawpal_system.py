@@ -10,19 +10,43 @@ display them as "HH:MM".
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 
 # Higher number = higher priority, so build() can sort tasks descending by rank.
 PRIORITY_RANK = {"high": 2, "medium": 1, "low": 0}
+
+# How far ahead each recurrence type schedules its next occurrence. Used with
+# timedelta so completing a task spawns an accurately-dated follow-up.
+RECURRENCE_DAYS = {"daily": 1, "weekly": 7}
 
 # The daily window the scheduler is allowed to place tasks in (06:00–22:00).
 DAY_START_MIN = 6 * 60
 DAY_END_MIN = 22 * 60
 
+# Minimum gap left between two placed tasks, for travel/prep/transition time.
+BUFFER_MIN = 10
+
+# Soft target time-of-day by pet activity level, used only when a task has no
+# explicit scheduled_time: high-energy pets get morning slots, low-energy pets
+# get afternoon ones. "medium"/unknown gets no bias (pure best-fit placement).
+ACTIVITY_TARGET_MIN = {"high": 8 * 60, "low": 16 * 60}
+
 
 def fmt(minutes: int) -> str:
     """Format minutes-since-midnight as 'HH:MM' (e.g. 570 -> '09:30')."""
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def to_minutes(hhmm: str) -> int | None:
+    """Parse an 'HH:MM' string into minutes since midnight.
+
+    Returns None for an empty string ("no preferred time") — the inverse of
+    fmt(), used by build() to turn a task's scheduled_time into a target.
+    """
+    if not hhmm:
+        return None
+    hours, mins = hhmm.split(":")
+    return int(hours) * 60 + int(mins)
 
 
 @dataclass
@@ -32,23 +56,54 @@ class Task:
     title: str
     duration_minutes: int
     priority: str  # "low" | "medium" | "high"
-    recurring_daily: bool = False
+    # Preferred time of day as zero-padded "HH:MM" (e.g. "09:30"). Empty means
+    # "no preference"; sort_by_time keys on this string directly.
+    scheduled_time: str = ""
+    # Recurrence: "" (one-off), "daily", or "weekly". A recurring task spawns
+    # its next occurrence when completed (see mark_complete).
+    recurrence: str = ""
+    # The day this task is due. Defaults (in __post_init__) to today for a
+    # recurring task, giving it a concrete anchor for the next occurrence.
+    due_date: date | None = None
     completed: bool = False
     # Which pet this task belongs to. Set by Pet.add_task; kept out of init/repr/eq
     # so it doesn't need to be passed in and can't cause a Pet<->Task repr loop.
     pet: Pet | None = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        """Normalize priority to lowercase so casing never affects ranking."""
+        """Normalize casing, and give a recurring task a concrete due date."""
         self.priority = self.priority.lower()
+        self.recurrence = self.recurrence.lower()
+        if self.recurrence and self.due_date is None:
+            self.due_date = date.today()
+
+    @property
+    def pet_name(self) -> str:
+        """Name of the owning pet, or 'unassigned' if unlinked."""
+        return self.pet.name if self.pet else "unassigned"
 
     def mark_complete(self) -> None:
-        """Flag this task as completed."""
-        self.completed = True
+        """Mark this task done; if it recurs, spawn its next occurrence.
 
-    def reset_for_day(self) -> None:
-        """Clear completion so a recurring task is ready for a new day."""
-        self.completed = False
+        A "daily" task's next instance is due one day later and a "weekly" task's
+        one week later — computed with timedelta so month/year boundaries and
+        leap years roll over correctly. The new Task is attached to the same pet.
+        """
+        self.completed = True
+        step = RECURRENCE_DAYS.get(self.recurrence)
+        if step is None or self.pet is None:
+            return  # one-off task, or somehow detached from a pet — nothing to spawn
+        anchor = self.due_date or date.today()
+        self.pet.add_task(
+            Task(
+                self.title,
+                self.duration_minutes,
+                self.priority,
+                scheduled_time=self.scheduled_time,
+                recurrence=self.recurrence,
+                due_date=anchor + timedelta(days=step),
+            )
+        )
 
 
 @dataclass
@@ -110,13 +165,85 @@ class Schedule:
         self.blocks: list[TimeBlock] = []
         self.unplaced: list[Task] = []  # tasks that didn't fit after build()
 
+    def all_tasks(self) -> list[Task]:
+        """Retrieve every task across all of the owner's pets (done or not)."""
+        return [task for pet in self.owner.pets for task in pet.tasks]
+
     def pending_tasks(self) -> list[Task]:
-        """Retrieve every incomplete task across all of the owner's pets.
+        """Retrieve incomplete tasks due on or before this schedule's day.
 
         This is the scheduler acting as the 'brain': it reaches through the owner
-        to gather tasks itself, rather than being handed a ready-made list.
+        to gather tasks itself, rather than being handed a ready-made list. Tasks
+        with no due_date are always eligible; a future-dated task (e.g. tomorrow's
+        spawned recurrence) is held back until the day rolls forward to it.
         """
-        return [task for pet in self.owner.pets for task in pet.tasks if not task.completed]
+        return [
+            t
+            for t in self.all_tasks()
+            if not t.completed and (t.due_date is None or t.due_date <= self.day)
+        ]
+
+    def sort_by_time(self) -> list[Task]:
+        """Return all tasks sorted by their scheduled "HH:MM" time.
+
+        Zero-padded "HH:MM" strings sort chronologically as plain strings
+        ("09:30" < "14:00"), so a simple string key on scheduled_time is enough.
+        Tasks with no preferred time ("") sort to the front.
+        """
+        return sorted(self.all_tasks(), key=lambda t: t.scheduled_time)
+
+    def filter_tasks(
+        self, *, pet_name: str | None = None, completed: bool | None = None
+    ) -> list[Task]:
+        """Filter tasks by pet name and/or completion status.
+
+        Both filters are optional and combine (AND). Leaving one as None means
+        "don't filter on it". Pet-name matching is case-insensitive.
+        """
+        tasks = self.all_tasks()
+        if pet_name is not None:
+            tasks = [t for t in tasks if t.pet and t.pet.name.lower() == pet_name.lower()]
+        if completed is not None:
+            tasks = [t for t in tasks if t.completed == completed]
+        return tasks
+
+    def detect_conflicts(self) -> list[str]:
+        """Report pairs of tasks whose requested time slots overlap.
+
+        A task with a scheduled_time "wants" the slot [start, start + duration].
+        If two such slots overlap they can't both happen as asked — one pet can't
+        be in two places, and neither can the single owner. This is a lightweight
+        O(n log n + pairs) check: sort by start, compare each slot only against
+        later ones until they're clearly past it. It COLLECTS warning strings and
+        returns them (empty list = no conflicts) — it never raises, so a clash is
+        surfaced as a message to print, not a crash.
+        """
+        # Only tasks that actually request a time can clash on time. Parse each
+        # scheduled_time once, reusing it for both the start and the end.
+        slots: list[TimeBlock] = []
+        for t in self.pending_tasks():
+            if not t.scheduled_time:
+                continue
+            start = to_minutes(t.scheduled_time)
+            slots.append(TimeBlock(t.title, start, start + t.duration_minutes, t))
+        slots.sort(key=lambda b: b.start_min)
+
+        warnings: list[str] = []
+        for i, a in enumerate(slots):
+            for b in slots[i + 1 :]:
+                if b.start_min >= a.end_min:
+                    break  # sorted by start: no later slot can overlap 'a' either
+                if not _overlaps(a, b):
+                    continue
+                # Every slot here was built with a real task above, so a.task and
+                # b.task are never None — no need to guard against it.
+                who = "same pet" if a.task.pet is b.task.pet else "different pets"
+                warnings.append(
+                    f"Conflict ({who}): '{a.label}' for {a.task.pet_name} "
+                    f"({fmt(a.start_min)}-{fmt(a.end_min)}) overlaps "
+                    f"'{b.label}' for {b.task.pet_name} ({fmt(b.start_min)}-{fmt(b.end_min)})."
+                )
+        return warnings
 
     def add_commitment(self, start: int, end: int, label: str) -> str:
         """Add a fixed commitment block (start/end are minutes since midnight).
@@ -177,10 +304,14 @@ class Schedule:
     def build(self) -> list[TimeBlock]:
         """Retrieve tasks from the owner's pets and place them into free windows.
 
-        Places tasks priority-first (shorter tasks first to break ties, so more
-        fit), using earliest-fit placement into the free gaps around commitments.
-        Anything that doesn't fit is recorded in ``self.unplaced``. Returns the
-        day's blocks ordered by start time.
+        Places tasks priority-first (shorter tasks first to break ties). Each
+        task aims for a target time: its explicit ``scheduled_time`` if set,
+        otherwise a soft time-of-day from its pet's activity level (high-energy
+        -> morning, low-energy -> afternoon). Tasks with a target land as close
+        to it as a window allows; tasks with no target use best-fit (the
+        tightest window that holds them). A ``BUFFER_MIN`` gap is kept between
+        placed tasks. Placing a task can split a window. Anything that doesn't
+        fit is recorded in ``self.unplaced``. Returns blocks ordered by start.
         """
         self.clear_plan()
 
@@ -194,17 +325,47 @@ class Schedule:
         windows = [[w.start_min, w.end_min] for w in self.free_windows()]
 
         for task in tasks:
-            placed = False
-            for w in windows:
-                if w[1] - w[0] >= task.duration_minutes:
-                    start = w[0]
-                    end = start + task.duration_minutes
-                    self.blocks.append(TimeBlock(task.title, start, end, task))
-                    w[0] = end  # shrink the window from the front
-                    placed = True
-                    break
-            if not placed:
+            dur = task.duration_minutes
+
+            # Target time: explicit scheduled_time wins; otherwise fall back to a
+            # soft target from the pet's activity level (may still be None).
+            target = to_minutes(task.scheduled_time)
+            if target is None and task.pet is not None:
+                target = ACTIVITY_TARGET_MIN.get(task.pet.activity_level)
+
+            # Score each window and keep the cheapest. With a target: minimize
+            # distance to it, tie-break by tightest window. Without a target:
+            # best-fit — smallest fitting window, tie-break earliest.
+            best_idx = best_start = best_cost = None
+            for i, w in enumerate(windows):
+                free = w[1] - w[0]
+                if free < dur:
+                    continue  # window too small for this task
+                if target is None:
+                    start, cost = w[0], (free, w[0])
+                else:
+                    # Clamp the target into the window's placeable range.
+                    start = min(max(target, w[0]), w[1] - dur)
+                    cost = (abs(start - target), free)
+                if best_cost is None or cost < best_cost:
+                    best_idx, best_start, best_cost = i, start, cost
+
+            if best_idx is None:
                 self.unplaced.append(task)
+                continue
+
+            start, end = best_start, best_start + dur
+            self.blocks.append(TimeBlock(task.title, start, end, task))
+            # Carve [start, end] out of the chosen window, leaving a BUFFER_MIN
+            # gap on each side so tasks aren't scheduled back-to-back. Empty or
+            # negative leftovers (e.g. at a window edge) are dropped.
+            w = windows[best_idx]
+            leftovers = [
+                seg
+                for seg in ([w[0], start - BUFFER_MIN], [end + BUFFER_MIN, w[1]])
+                if seg[1] > seg[0]
+            ]
+            windows[best_idx : best_idx + 1] = leftovers
 
         self.blocks.sort(key=lambda b: b.start_min)
         return self.blocks
@@ -217,17 +378,20 @@ class Schedule:
             if b.task is None:
                 lines.append(f"  {when}  {b.label} (commitment)")
             else:
-                pet_name = b.task.pet.name if b.task.pet else "unassigned"
+                pet_name = b.task.pet_name
+                note = ""
+                pref = to_minutes(b.task.scheduled_time)
+                if pref is not None and pref != b.start_min:
+                    note = f" [wanted {b.task.scheduled_time}]"
                 lines.append(
-                    f"  {when}  {b.label} for {pet_name} ({b.task.priority} priority)"
+                    f"  {when}  {b.label} for {pet_name} ({b.task.priority} priority){note}"
                 )
         if self.unplaced:
             lines.append("")
             lines.append("Couldn't fit (no free time):")
             for t in self.unplaced:
-                pet_name = t.pet.name if t.pet else "unassigned"
                 lines.append(
-                    f"  - {t.title} for {pet_name} ({t.duration_minutes} min, {t.priority} priority)"
+                    f"  - {t.title} for {t.pet_name} ({t.duration_minutes} min, {t.priority} priority)"
                 )
         return "\n".join(lines)
 
@@ -265,15 +429,28 @@ class Owner:
         task.mark_complete()
 
     def start_new_day(self) -> None:
-        """Roll over to a new day.
+        """Roll the schedule forward to the next day.
 
-        Resets recurring tasks so they reappear, and clears only the generated
-        plan (commitments the owner entered are preserved via clear_plan).
+        Advances the schedule's date and clears the generated plan (the owner's
+        commitments are preserved via clear_plan). Completing a recurring task
+        already spawned its next-day instance, which becomes eligible once the
+        day advances to its due_date.
+
+        A recurring task that was *never* completed isn't duplicated (spawning
+        only happens on completion) — but we roll its due_date forward to the new
+        day so it stays "today's task" instead of lingering stale-dated in the
+        past. You only ever owe the current occurrence, never a backlog.
         """
+        self.schedule.day = self.schedule.day + timedelta(days=1)
         for pet in self.pets:
             for task in pet.tasks:
-                if task.recurring_daily:
-                    task.reset_for_day()
+                if (
+                    task.recurrence
+                    and not task.completed
+                    and task.due_date is not None
+                    and task.due_date < self.schedule.day
+                ):
+                    task.due_date = self.schedule.day
         self.schedule.clear_plan()
 
     def build_day(self) -> list[TimeBlock]:

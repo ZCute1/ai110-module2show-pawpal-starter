@@ -159,10 +159,11 @@ else:
             duration = st.number_input("Minutes", min_value=1, max_value=240, value=30)
         with t3:
             priority = st.selectbox("Priority", ["low", "medium", "high"], index=2)
-        recurring = st.checkbox("Repeats daily")
+        repeats = st.selectbox("Repeats", ["Never", "Daily", "Weekly"])
         if st.form_submit_button("Add task"):
             pet = next(p for p in owner.pets if p.name == chosen)
-            pet.add_task(Task(title, int(duration), priority, recurring_daily=recurring))
+            recurrence = "" if repeats == "Never" else repeats.lower()
+            pet.add_task(Task(title, int(duration), priority, recurrence=recurrence))
             st.success(f"Added '{title}' for {chosen}.")
 
     rows = [
@@ -171,7 +172,7 @@ else:
             "Task": t.title,
             "Min": t.duration_minutes,
             "Priority": t.priority,
-            "Daily": t.recurring_daily,
+            "Repeats": t.recurrence or "—",
             "Done": t.completed,
         }
         for p in owner.pets
@@ -213,6 +214,20 @@ with col_a:
 with col_b:
     if st.button("Start new day"):
         owner.start_new_day()
+
+# Surface any same-time task conflicts, with a short explanation. This checks the
+# times you *requested* (not the built plan), so it warns even before you
+# generate — the scheduler will still place both tasks, just not at once.
+conflicts = owner.schedule.detect_conflicts()
+if conflicts:
+    st.warning(
+        "⚠️ **Scheduling conflict**\n\n"
+        "Some tasks are set for the same time. A pet can't be in two places at "
+        "once — and neither can you — so the scheduler keeps each task's "
+        "priority but moves one to the next free slot. Edit their times if "
+        "you'd rather decide yourself.\n\n"
+        + "\n".join(f"- {c}" for c in conflicts)
+    )
 
 if owner.schedule.blocks:
     plan_rows = []
