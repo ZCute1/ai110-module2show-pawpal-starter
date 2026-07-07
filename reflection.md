@@ -79,11 +79,23 @@ I asked it to give me the pros and cons of each suggestion and i asked it to tes
 **a. What you tested**
 
 - What behaviors did you test?
+
+Happy paths — tasks get placed, never overlap commitments, high-priority tasks win contested slots, preferred times are honored (and bumped when blocked), and pets' activity levels bias placement (high→morning, low→afternoon).
+Recurrence — completing a daily/weekly task spawns its next occurrence (+1/+7 days); one-off tasks spawn nothing.
+Task retrieval — pending_tasks correctly excludes completed and future-dated tasks; filtering and chronological sorting work.
+Conflict detection — same-time tasks are flagged (with correct same-pet/different-pet labels), and both clashing tasks still get scheduled.
+Free windows — gaps are computed correctly around commitments, including overlapping/nested ones and a fully booked day.
+Edge cases — no pets/no tasks, tasks that don't fit, exact-fit windows, the 10-minute buffer between tasks, and input normalization.
+Day rollover — future-dated recurrences stay hidden until their day arrives, stale tasks roll forward without duplicating, and commitments survive the rollover.
+
 - Why were these tests important?
+
+These tests matter because the scheduling code can go wrong without crashing — it could quietly drop a task, forget to repeat a daily chore, or book two things at the same time, and the owner would trust a schedule that's actually wrong. The tests check that everything works the way it should, both in normal cases and tricky ones, so I can change the code later without accidentally breaking it. They also show clearly how the system is meant to behave. 
 
 **b. Confidence**
 
 - How confident are you that your scheduler works correctly?
+75 before the testss
 - What edge cases would you test next if you had more time?
 
 ---
