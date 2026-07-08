@@ -1,0 +1,74 @@
+classDiagram
+    %% PawPal+ — pet care planning assistant (final, matches pawpal_system.py)
+    %% Schedule = the owner's day: fixed commitments (time constraints) + pet tasks the scheduler places around them.
+    %% Times are stored as minutes since midnight (int); module helpers fmt()/to_minutes()/_overlaps() are free functions, not class methods.
+
+    class Owner {
+        +str name
+        +List~Pet~ pets
+        +Schedule schedule
+        +add_pet(pet) None
+        +add_commitment(start, end, label) str
+        +remove_commitment(block) None
+        +move_commitment(block, new_start) None
+        +check_off(task) None
+        +start_new_day() None
+        +build_day() List~TimeBlock~
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +str breed
+        +str activity_level
+        +List~Task~ tasks
+        +add_task(task) None
+    }
+
+    class Task {
+        +str title
+        +int duration_minutes
+        +str priority
+        +str scheduled_time
+        +str recurrence
+        +date due_date
+        +bool completed
+        +Pet pet
+        +pet_name() str
+        +mark_complete() None
+    }
+
+    class Schedule {
+        +date day
+        +Owner owner
+        +List~TimeBlock~ blocks
+        +List~Task~ unplaced
+        +all_tasks() List~Task~
+        +pending_tasks() List~Task~
+        +sort_by_time() List~Task~
+        +filter_tasks(pet_name, completed) List~Task~
+        +detect_conflicts() List~str~
+        +add_commitment(start, end, label) str
+        +remove_block(block) None
+        +move_block(block, new_start) None
+        +clear_plan() None
+        +free_windows() List~TimeBlock~
+        +build() List~TimeBlock~
+        +explain() str
+    }
+
+    class TimeBlock {
+        +str label
+        +int start_min
+        +int end_min
+        +Task task
+        +duration() int
+    }
+
+    Owner "1" --> "0..*" Pet : owns
+    Owner "1" --> "1" Schedule : plans
+    Schedule "1" --> "1" Owner : retrieves tasks from
+    Pet "1" *-- "0..*" Task : has
+    Task "0..*" --> "1" Pet : belongs to
+    Schedule "1" *-- "0..*" TimeBlock : contains
+    TimeBlock "0..1" --> "1" Task : places

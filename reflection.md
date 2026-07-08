@@ -62,6 +62,11 @@ This is a reasonable tradeoff because the owner is concerned about completing ta
 
 - How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
 I used it to judge my brainstorming (to check if there were any grey areas or cases that were unnaccounted for), and to check that everything is logical and reasonable. I also used it to automate testing as well.
+
+
+- How did using separate chat sessions for different phases help you stay organized?
+I think it helped to refresh the model and kept its "working memory" free and focused on the task at hand. I will definitely use this from now on
+
 - What kinds of prompts or questions were most helpful?
 I liked the ones from the instructions that I wouldn't have thought to ask, like simplifying the code for readability. Since AI is made to sound so confident and sure of itself, we actually think it is 100% correct and accurate and then end up feeling unsure of our own ideas. So even when the code it gave worked, I didn't think to make it more readable (I just thought that experienced developers would be able to reason it out without difficulty and there was no issue with readability). So it was nice to think about that.
 Also the prompts about assessing the current system design led to interesting discoveries and helped me understand the full picture of the system better.
@@ -95,7 +100,8 @@ These tests matter because the scheduling code can go wrong without crashing —
 **b. Confidence**
 
 - How confident are you that your scheduler works correctly?
-75 before the testss
+75 before the tests. I just haven't explored other things that could cause it to behave differently
+
 - What edge cases would you test next if you had more time?
 
 ---

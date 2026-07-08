@@ -64,10 +64,43 @@ The scheduler places pet tasks highest-priority-first into the free time around
 the owner's fixed commitments, labels each task with the pet it belongs to, and
 warns when a new commitment overlaps an existing one.
 
-## System Design
-- add a pet
-- schedule a walk
-- see today's tasks
+## ✨ Features
+
+The scheduling logic lives in `pawpal_system.py`. Each feature below maps to a
+concrete algorithm (see **Smarter Scheduling** further down for method-level
+detail).
+
+**Planning & placement**
+- **Priority-first placement** — tasks are placed high-priority-first, with
+  shorter tasks breaking ties, into the free time around fixed commitments.
+- **Preferred-time placement** — a task with a preferred `"HH:MM"` lands as
+  close to it as a free window allows; if that time is blocked, it's bumped to
+  the nearest opening (and the plan flags it with `[wanted HH:MM]`).
+- **Activity-based soft targets** — a task with no preferred time is nudged by
+  its pet's energy: high-energy → morning, low-energy → afternoon.
+- **Free-window detection** — computes the open gaps between commitments within
+  the 06:00–22:00 day, merging overlapping/nested commitments.
+- **Buffers between tasks** — keeps a 10-minute gap between placed tasks for
+  travel/transition time.
+- **Unplaced tracking** — anything that can't fit is collected and reported
+  rather than silently dropped.
+
+**Organizing tasks**
+- **Sorting by time** — returns tasks in chronological order (untimed tasks
+  first).
+- **Filtering** — by pet name (case-insensitive) and/or completion status.
+- **Conflict warnings** — flags pairs of tasks requested for overlapping times,
+  labeled *same pet* vs *different pets*.
+
+**Recurrence & day management**
+- **Daily / weekly recurrence** — completing a recurring task automatically
+  spawns its next occurrence (+1 day / +7 days) on the same pet.
+- **Day rollover** — advances to the next day, keeps commitments, and rolls any
+  missed recurring task forward so it never piles up into a backlog.
+- **Commitment management** — add / remove / move fixed commitments, with an
+  overlap warning when a new one clashes.
+- **Plan explanation** — a human-readable summary of why each task was placed
+  when, plus what didn't fit.
 
 ## 🧪 Testing PawPal+
 
@@ -239,12 +272,115 @@ Supporting pieces:
 
 ## 📸 Demo Walkthrough
 
-Describe your app in numbered steps so a reader can follow along without watching a video:
+### The app (`streamlit run app.py`)
 
-1. <!-- Describe this step -->
-2. <!-- Describe this step -->
-3. <!-- Describe this step -->
-4. <!-- Describe this step -->
-5. <!-- Add more steps as needed -->
+The Streamlit UI is organized top-to-bottom as a single planning page:
 
-**Screenshot or video** *(optional)*: <!-- Insert a screenshot or link to a demo video here -->
+- **Owner** — set the owner's name.
+- **🐾 Pets** — add a pet (name, species, breed, activity level). The activity
+  level feeds the scheduler's morning/afternoon bias.
+- **✅ Tasks** — add care tasks for a chosen pet (title, duration, priority, and
+  a Never/Daily/Weekly repeat). Current tasks are shown in a table.
+- **📌 Commitments** — add the fixed blocks you're busy (e.g. Work 09:00–17:00);
+  an overlapping commitment triggers an `st.warning`.
+- **🗓️ Today's Schedule** — **Generate schedule** builds the plan and shows it
+  as a table (time · what · pet/priority); **Start new day** rolls the date
+  forward. Same-time task conflicts appear as an `st.warning`, and anything that
+  couldn't fit is listed separately.
+- **☑️ Check off tasks** — mark a task complete; a recurring task's next
+  occurrence is spawned automatically.
+
+### Example workflow
+
+1. Enter the owner's name (e.g. *Zuriel*).
+2. **Add a pet** — *Mochi*, a high-energy dog.
+3. **Add a task** — *Morning walk*, 45 min, high priority, repeats Daily.
+4. **Add a commitment** — *Work*, 09:00–17:00.
+5. Click **Generate schedule** — the walk is placed in the morning, before Work.
+6. **Check off** the walk — tomorrow's walk is spawned automatically; click
+   **Start new day** to see it become today's task.
+
+### Key scheduler behaviors on display
+
+- **Sorting** — the task/plan views show tasks in time order.
+- **Conflict warnings** — two tasks set for the same time raise a clear notice
+  while still both getting scheduled (one bumped to the next slot).
+- **Preferred-time bumping** — a task whose wanted time is blocked is moved and
+  flagged with `[wanted HH:MM]`.
+- **Priority + activity placement** — high-priority and high-energy tasks land
+  earlier in the day.
+- **Recurrence & rollover** — completing a daily/weekly task spawns its next
+  occurrence, held back until its day arrives.
+
+### Sample CLI output (`python main.py`)
+
+The terminal demo builds a two-pet scenario and exercises every feature end to
+end — sorting, filtering, conflict detection, scheduling, and recurrence:
+
+```
+Heads up: 'Lunch w/ Sam' overlaps 'Work'.
+
+===== Tasks sorted by time =====
+  --:--  Fetch in the yard for Mochi (pending)
+  --:--  Grooming for Luna (pending)
+  06:30  Groomer appointment for Mochi (pending)
+  06:30  Puppy playdate for Mochi (pending)
+  07:30  Feeding for Luna (pending)
+  08:00  Morning walk for Mochi (pending)
+  12:30  Vet phone call for Mochi (pending)
+  15:00  Training session for Mochi (done)
+  18:30  Playtime for Luna (pending)
+
+===== Luna's tasks =====
+  07:30  Feeding
+  18:30  Playtime
+  --:--  Grooming
+
+===== Still to do (incomplete) =====
+  08:00  Morning walk for Mochi
+  12:30  Vet phone call for Mochi
+  --:--  Fetch in the yard for Mochi
+  06:30  Groomer appointment for Mochi
+  06:30  Puppy playdate for Mochi
+  07:30  Feeding for Luna
+  18:30  Playtime for Luna
+  --:--  Grooming for Luna
+
+===== Conflict check =====
+  ⚠️  Conflict (same pet): 'Groomer appointment' for Mochi (06:30-07:00) overlaps 'Puppy playdate' for Mochi (06:30-07:00).
+
+===== Today's Schedule =====
+Plan for 2026-07-07:
+  06:20-06:50  Groomer appointment for Mochi (medium priority) [wanted 06:30]
+  07:00-07:20  Fetch in the yard for Mochi (medium priority)
+  07:30-07:45  Feeding for Luna (high priority)
+  08:00-08:45  Morning walk for Mochi (high priority)
+  09:00-17:00  Work (commitment)
+  12:00-13:00  Lunch w/ Sam (commitment)
+  17:00-17:20  Vet phone call for Mochi (medium priority) [wanted 12:30]
+  17:30-17:50  Grooming for Luna (low priority)
+  18:30-18:50  Playtime for Luna (low priority)
+  19:00-19:30  Puppy playdate for Mochi (low priority) [wanted 06:30]
+
+===== Recurrence (spawn on complete) =====
+Before: Luna has 3 tasks; 'Feeding' (daily) due 2026-07-07.
+After completing it: Luna has 4 tasks; new 'Feeding' due 2026-07-08.
+
+===== Schedule after 'start new day' (2026-07-08) =====
+Plan for 2026-07-08:
+  06:20-06:50  Groomer appointment for Mochi (medium priority) [wanted 06:30]
+  07:00-07:20  Fetch in the yard for Mochi (medium priority)
+  07:30-07:45  Feeding for Luna (high priority)
+  08:00-08:45  Morning walk for Mochi (high priority)
+  09:00-17:00  Work (commitment)
+  12:00-13:00  Lunch w/ Sam (commitment)
+  17:00-17:20  Vet phone call for Mochi (medium priority) [wanted 12:30]
+  17:30-17:50  Grooming for Luna (low priority)
+  18:30-18:50  Playtime for Luna (low priority)
+  19:00-19:30  Puppy playdate for Mochi (low priority) [wanted 06:30]
+```
+
+> Note: the two same-time tasks (*Groomer appointment* and *Puppy playdate*,
+> both wanted 06:30) are flagged as a conflict, then the scheduler keeps both —
+> giving 06:30 to the higher-priority one and bumping the other, each marked
+> `[wanted 06:30]`.
